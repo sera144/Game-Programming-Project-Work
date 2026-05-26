@@ -4,7 +4,9 @@ Game::Game()
     : Window(L"Galaga"),
     IsRunning(true),
     TitleUpdateTimer(0.0f),
-    FrameCounter(0)
+    FrameCounter(0),
+    GlobalTime(0.0f),
+    PlayerLives(3)
 {
     PrevTime = std::chrono::high_resolution_clock::now();
 }
@@ -41,6 +43,13 @@ bool Game::Initialize(HINSTANCE hInstance)
     Enemies[2].SetPosition(enemyX, diamondY);
 
     return true;
+}
+
+void Game::ResetGame()
+{
+    CurrentState = GameState::Startup;
+    //didnt allocate yet 
+    GlobalTime = 0.0f;
 }
 
 float Game::GetDeltaTime()
@@ -87,17 +96,49 @@ void Game::Run()
     }
 }
 
-void Game::Input()
+void Game::Input() 
 {
+    // ESC quits from anywhere
     if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
     {
         IsRunning = false;
-        DestroyWindow(Window.hWnd);
+        return;
+    }
+
+    //R resets to startup screen
+    if (GetAsyncKeyState('R') & 0x0001)
+    {
+        ResetGame();
+        return;
+    }
+
+    //Startup screen
+    if (CurrentState == GameState::Startup)
+    {
+        if (GetAsyncKeyState('S') & 0x0001)
+            CurrentState = GameState::Playing;
+
+        return;
+    }
+
+    //P for pause game
+    if (GetAsyncKeyState('P') & 0x0001)
+    {
+        if (CurrentState == GameState::Playing)
+            CurrentState = GameState::Paused;
+        else if (CurrentState == GameState::Paused)
+            CurrentState = GameState::Playing;
     }
 }
 
 void Game::Update(float dt)
 {
+    GlobalTime += dt; 
+
+    //stop game when on pause 
+    if (CurrentState != GameState::Playing)
+        return;
+
     bool moveLeft = (GetAsyncKeyState(VK_LEFT) & 0x8000) || (GetAsyncKeyState('A') & 0x8000);
     bool moveRight = (GetAsyncKeyState(VK_RIGHT) & 0x8000) || (GetAsyncKeyState('D') & 0x8000);
     bool shootPressed = (GetAsyncKeyState(VK_SPACE) & 0x8000);
@@ -124,13 +165,61 @@ void Game::Update(float dt)
     EnemyBulletSystemObject.Update(dt, type2CanShoot, type2X, type2Y);
 }
 
+void Game::RenderLives()
+{
+    const float iconY = 0.88f;   // vertical position (NDC)
+    const float iconScale = 0.25f;   // DrawTriangle scaleX/Y
+    const float spacing = 0.14f;   // horizontal gap between icons
+    const float startX = 0.82f;   // x of the rightmost icon
+
+    for (int i = 0; i < PlayerLives; ++i)
+    {
+        float x = startX - i * spacing;
+        Graphics.DrawTriangle(x, iconY, iconScale, iconScale);
+    }
+}
+
 void Game::Render()
 {
     Graphics.BeginFrame();
 
+    //startup screen
+    if (CurrentState == GameState::Startup)
+    {
+        StartScreen.Render(Graphics, GlobalTime);
+
+        Graphics.EndFrame();
+        return;
+    }
+
+    //pause screen
+    if (CurrentState == GameState::Paused)
+    {
+        Graphics.DrawText("PAUSED", -0.35f, 0.1f, 1.5f);
+
+        if (sinf(GlobalTime * 3.14f) > 0.0f)
+        {
+            Graphics.DrawText("PRESS P TO CONTINUE", -0.30f, -0.1f, 0.4f);
+        }
+
+        Graphics.EndFrame();
+        return;
+    }
+
     Graphics.DrawTriangle(PlayerObject.GetX(), PlayerObject.GetY(), 1.0f, 1.0f);
     PlayerBulletSystemObject.Render(Graphics);
 
+    // Player bullets
+    PlayerBulletSystemObject.Render(Graphics);
+
+    // UI Text
+    Graphics.DrawText("R RESTART", -0.92f, 0.92f, 0.35f);
+
+    Graphics.DrawText("P PAUSE", -0.92f, 0.82f, 0.35f);
+
+    // Lives
+    RenderLives();
+    
     for (int i = 0; i < EnemyCount; i++)
     {
         if (!Enemies[i].GetIsAlive())
